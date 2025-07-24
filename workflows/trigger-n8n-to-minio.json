@@ -1,0 +1,375 @@
+{
+  "name": "My workflow 3 - Enhanced with sender paths and folder structure + Email Filtering",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "q": "has:attachment filename:xlsx OR filename:xls"
+        },
+        "options": {
+          "downloadAttachments": true
+        }
+      },
+      "id": "28dbcc10-2182-4c2a-813c-77ad068cb082",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [
+        440,
+        -120
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "lT5nhPJ7OHVPrAYN",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "get",
+        "messageId": "={{$node[\"Gmail Trigger\"].json[\"id\"]}}",
+        "additionalFields": {
+          "format": "full"
+        }
+      },
+      "id": "7aa89414-5d95-4b0a-8126-e8ffbb0b4232",
+      "name": "Get Gmail Message",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 1,
+      "position": [
+        740,
+        100
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "lT5nhPJ7OHVPrAYN",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e68afd06-f24a-4fa3-a75f-84202417480f",
+              "name": "messageId",
+              "value": "={{$json[\"id\"]}}",
+              "type": "string"
+            },
+            {
+              "id": "78484aba-1ba7-4ed5-92ba-56d7ffa379a0",
+              "name": "attachmentId",
+              "value": "={{$json[\"payload\"][\"parts\"][1][\"body\"][\"attachmentId\"]}}",
+              "type": "string"
+            },
+            {
+              "id": "fa6a68d6-d3f9-477c-adbf-4d73e065bab4",
+              "name": "fileName",
+              "value": "={{$json.payload.parts[1].filename}}",
+              "type": "string"
+            },
+            {
+              "id": "new-sender-field",
+              "name": "senderEmail",
+              "value": "={{$json.payload.headers.find(h => h.name === 'From').value.match(/<(.+?)>/)?.[1] || $json.payload.headers.find(h => h.name === 'From').value}}",
+              "type": "string"
+            },
+            {
+              "id": "new-sender-name-field",
+              "name": "senderName",
+              "value": "={{$json.payload.headers.find(h => h.name === 'From').value.match(/^([^<]*)/)?.[1]?.trim() || $json.payload.headers.find(h => h.name === 'From').value.split('@')[0]}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1020,
+        100
+      ],
+      "id": "6ac2f444-4f5a-4ff2-9018-53f20ec1b558",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "authorized-sender-1",
+              "leftValue": "={{ $json.senderEmail }}",
+              "rightValue": "sunrakotonirina78@gmail.com",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "authorized-sender-2",
+              "leftValue": "={{ $json.senderEmail }}",
+              "rightValue": "finoanar40@gmail.com",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        100
+      ],
+      "id": "email-filter-node",
+      "name": "Email Filter"
+    },
+    {
+      "parameters": {
+        "url": "=https://gmail.googleapis.com/gmail/v1/users/me/messages/{{$json[\"messageId\"]}}/attachments/{{$json[\"attachmentId\"]}}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleOAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1520,
+        100
+      ],
+      "id": "9907d267-fefc-4d2b-ab80-b47bd4ade07e",
+      "name": "HTTP Request",
+      "credentials": {
+        "googleOAuth2Api": {
+          "id": "86LsiVbbwJVecO5L",
+          "name": "Google account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Récupérer les informations de l'expéditeur et du fichier\nconst senderName = $node[\"Edit Fields\"].json.senderName || 'unknown';\nconst senderEmail = $node[\"Edit Fields\"].json.senderEmail || 'unknown@unknown.com';\nconst fileName = $node[\"Edit Fields\"].json.fileName || 'fichier.xlsx';\n\n// Nettoyer le nom de l'expéditeur pour le path (supprimer les caractères spéciaux)\nconst cleanSenderName = senderName.replace(/[^a-zA-Z0-9._-]/g, '_').toLowerCase();\n\n// Créer le buffer depuis les données base64\nconst buffer = Buffer.from($json.data, 'base64');\n\n// Générer un timestamp pour éviter les conflits de noms\nconst timestamp = new Date().toISOString().replace(/[:.]/g, '-');\n\n// Extraire le nom du fichier sans extension\nconst fileNameWithoutExt = fileName.replace(/\\.[^/.]+$/, \"\");\nconst fileExtension = fileName.split('.').pop();\n\n// Nettoyer le nom du fichier pour le path\nconst cleanFileName = fileNameWithoutExt.replace(/[^a-zA-Z0-9._-]/g, '_');\n\n// Créer le nom du dossier et du fichier avec timestamp\nconst folderAndFileName = `${timestamp}-${cleanFileName}`;\n\n// Créer le path complet: expediteur/timestamp-fichier/timestamp-fichier.xlsx\nconst filePath = `${cleanSenderName}/${folderAndFileName}/${folderAndFileName}.${fileExtension}`;\n\n// Déterminer le mimeType basé sur l'extension\nlet mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';\nif (fileExtension.toLowerCase() === 'xls') {\n  mimeType = 'application/vnd.ms-excel';\n}\n\nreturn [\n  {\n    binary: {\n      attachment_0: {\n        data: buffer.toString('base64'),\n        fileName: filePath,  // Le path complet incluant le dossier et sous-dossier\n        mimeType: mimeType\n      }\n    },\n    json: {\n      source: 'Gmail',\n      originalName: fileName,\n      senderEmail: senderEmail,\n      senderName: senderName,\n      cleanSenderName: cleanSenderName,\n      filePath: filePath,\n      timestamp: timestamp,\n      folderName: folderAndFileName,\n      fileExtension: fileExtension,\n      cleanFileName: cleanFileName,\n      processedAt: new Date().toISOString()\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        100
+      ],
+      "id": "1e58a067-e8b2-4d51-800e-72a5e6ec0893",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "bucketName": "datalake",
+        "fileName": "={{$binary.attachment_0.fileName}}",
+        "binaryPropertyName": "attachment_0",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [
+        2000,
+        100
+      ],
+      "id": "ee049210-7987-4d26-9caf-5ad5a0e404db",
+      "name": "Upload a file",
+      "credentials": {
+        "s3": {
+          "id": "G5KR18fJhuPQ5sqj",
+          "name": "S3 account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "log-success",
+              "name": "status",
+              "value": "success",
+              "type": "string"
+            },
+            {
+              "id": "log-message",
+              "name": "message",
+              "value": "={{\"Fichier \" + $node[\"Code\"].json.originalName + \" uploadé avec succès depuis \" + $node[\"Code\"].json.senderEmail + \" vers \" + $node[\"Code\"].json.filePath}}",
+              "type": "string"
+            },
+            {
+              "id": "log-timestamp",
+              "name": "uploadedAt",
+              "value": "={{new Date().toISOString()}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2240,
+        100
+      ],
+      "id": "log-success-node",
+      "name": "Log Success"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "log-blocked",
+              "name": "status",
+              "value": "blocked",
+              "type": "string"
+            },
+            {
+              "id": "log-blocked-message",
+              "name": "message",
+              "value": "={{\"Email bloqué: \" + $node[\"Edit Fields\"].json.senderEmail + \" n'est pas autorisé à envoyer des fichiers\"}}",
+              "type": "string"
+            },
+            {
+              "id": "log-blocked-timestamp",
+              "name": "blockedAt",
+              "value": "={{new Date().toISOString()}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1520,
+        300
+      ],
+      "id": "log-blocked-node",
+      "name": "Log Blocked Email"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Gmail Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Gmail Message": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Email Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Filter": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Blocked Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Upload a file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload a file": {
+      "main": [
+        [
+          {
+            "node": "Log Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "38100c85-07f3-4f60-a12b-140e8065b026",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "d671750fe679ac69a36181ebdc6eee78d79e2f03592edf1cbc6f4081917b3bb4"
+  },
+  "id": "srbGn0MLbs0DMDxP",
+  "tags": []
+}
